@@ -21,6 +21,7 @@ type Config struct {
 	ShowTree     bool
 	OnlyTree     bool
 	PrintOut     bool
+	IgnoreCase   bool
 }
 
 type ExcludeMatcher struct {
@@ -39,7 +40,7 @@ func main() {
 	}
 
 	// Collect all files
-	files, err := collectFiles(cfg.Paths, matcher)
+	files, err := collectFiles(cfg.Paths, matcher, cfg.IgnoreCase)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error collecting files: %v\n", err)
 		os.Exit(1)
@@ -125,6 +126,8 @@ func parseArgs() *Config {
 			cfg.OnlyTree = true
 		case "-p", "--print":
 			cfg.PrintOut = true
+		case "-i", "--ignore-case":
+			cfg.IgnoreCase = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				fmt.Fprintf(os.Stderr, "Error: unknown option: %s\n", arg)
@@ -157,6 +160,7 @@ Description:
 Options:
   -e, --exclude PATTERN     Exclude glob pattern (repeatable)
       --exclude-from FILE   Read patterns from FILE with full .gitignore semantics (repeatable)
+  -i, --ignore-case         Make glob pattern matching case-insensitive
   -t, --tree                Prepend a FILE HIERARCHY section
       --only-tree           Copy only the FILE HIERARCHY (no file contents)
   -p, --print               Also print to stdout
@@ -166,7 +170,8 @@ Examples:
   clipcat README.md src/
   clipcat src/ -t
   clipcat . -e go.mod -e go.sum
-  clipcat '*checkin*' --exclude-from .gitignore --exclude 'frontend/assets/'
+  clipcat '*checkin*' -i --exclude-from .gitignore
+  clipcat '*TEST*' --ignore-case --exclude 'frontend/assets/'
 `)
 }
 
@@ -263,7 +268,7 @@ func isGlobPattern(path string) bool {
 	return strings.ContainsAny(path, "*?[")
 }
 
-func collectFiles(paths []string, matcher *ExcludeMatcher) ([]string, error) {
+func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]string, error) {
 	seen := make(map[string]bool)
 	var result []string
 
@@ -305,7 +310,17 @@ func collectFiles(paths []string, matcher *ExcludeMatcher) ([]string, error) {
 					return nil
 				}
 				if !fi.IsDir() {
-					matched, _ := filepath.Match(path, filepath.Base(p))
+					basename := filepath.Base(p)
+					var matched bool
+					
+					if ignoreCase {
+						// Case-insensitive matching
+						matched, _ = filepath.Match(strings.ToLower(path), strings.ToLower(basename))
+					} else {
+						// Case-sensitive matching
+						matched, _ = filepath.Match(path, basename)
+					}
+					
 					if matched {
 						absPath, _ := filepath.Abs(p)
 						if !matcher.ShouldExclude(absPath) && !seen[absPath] {
