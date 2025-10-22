@@ -64,8 +64,8 @@ func TestCollectFiles_SingleFile(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	matcher := &ExcludeMatcher{}
-	
-	files, err := collectFiles([]string{filepath.Join(tmpDir, "README.md")}, matcher)
+
+	files, err := collectFiles([]string{filepath.Join(tmpDir, "README.md")}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -85,8 +85,8 @@ func TestCollectFiles_Directory(t *testing.T) {
 
 	matcher := &ExcludeMatcher{}
 	srcDir := filepath.Join(tmpDir, "src")
-	
-	files, err := collectFiles([]string{srcDir}, matcher)
+
+	files, err := collectFiles([]string{srcDir}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -96,9 +96,9 @@ func TestCollectFiles_Directory(t *testing.T) {
 		t.Errorf("expected 3 files in src/, got %d", len(files))
 	}
 
-	// Check that all files are from src/
+	// Check that all files are from src/ (OS-agnostic)
 	for _, f := range files {
-		if !strings.Contains(f, "/src/") {
+		if !strings.Contains(filepath.ToSlash(f), "/src/") {
 			t.Errorf("file %s is not from src/ directory", f)
 		}
 	}
@@ -110,7 +110,7 @@ func TestCollectFiles_DirectoryWithExclusions(t *testing.T) {
 
 	// Create matcher that excludes *.log and node_modules/
 	gitignorePath := filepath.Join(tmpDir, ".gitignore")
-	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{})
+	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -120,20 +120,21 @@ func TestCollectFiles_DirectoryWithExclusions(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(tmpDir)
 
-	files, err := collectFiles([]string{"."}, matcher)
+	files, err := collectFiles([]string{"."}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
 
 	// Should exclude *.log, node_modules/, and build/
 	for _, f := range files {
-		if strings.Contains(f, ".log") {
+		fs := filepath.ToSlash(f)
+		if strings.Contains(fs, ".log") {
 			t.Errorf("found excluded .log file: %s", f)
 		}
-		if strings.Contains(f, "node_modules") {
+		if strings.Contains(fs, "node_modules/") {
 			t.Errorf("found excluded node_modules file: %s", f)
 		}
-		if strings.Contains(f, "build") {
+		if strings.Contains(fs, "build/") {
 			t.Errorf("found excluded build file: %s", f)
 		}
 	}
@@ -168,8 +169,8 @@ func TestCollectFiles_GlobPattern(t *testing.T) {
 	os.Chdir(tmpDir)
 
 	matcher := &ExcludeMatcher{}
-	
-	files, err := collectFiles([]string{"*test*"}, matcher)
+
+	files, err := collectFiles([]string{"*test*"}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -193,13 +194,13 @@ func TestCollectFiles_MultipleInputs(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	matcher := &ExcludeMatcher{}
-	
+
 	inputs := []string{
 		filepath.Join(tmpDir, "README.md"),
 		filepath.Join(tmpDir, "src"),
 	}
-	
-	files, err := collectFiles(inputs, matcher)
+
+	files, err := collectFiles(inputs, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -215,13 +216,13 @@ func TestCollectFiles_Deduplication(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	matcher := &ExcludeMatcher{}
-	
+
 	readmePath := filepath.Join(tmpDir, "README.md")
-	
+
 	// Add the same file twice
 	inputs := []string{readmePath, readmePath}
-	
-	files, err := collectFiles(inputs, matcher)
+
+	files, err := collectFiles(inputs, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -370,7 +371,7 @@ func TestWriteFileContent(t *testing.T) {
 func TestWriteFileContent_Unreadable(t *testing.T) {
 	var output bytes.Buffer
 	err := writeFileContent(&output, "/nonexistent/file.txt")
-	
+
 	if err == nil {
 		t.Error("expected error for nonexistent file")
 	}
@@ -386,7 +387,7 @@ func TestEndToEnd_BasicUsage(t *testing.T) {
 
 	// Collect files from src/
 	matcher := &ExcludeMatcher{}
-	files, err := collectFiles([]string{"src"}, matcher)
+	files, err := collectFiles([]string{"src"}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -429,33 +430,34 @@ func TestEndToEnd_WithTreeAndExclusions(t *testing.T) {
 
 	// Build exclude matcher
 	gitignorePath := filepath.Join(tmpDir, ".gitignore")
-	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{})
+	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
 
 	// Collect files
-	files, err := collectFiles([]string{"."}, matcher)
+	files, err := collectFiles([]string{"."}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
 
 	// Verify excluded files are not in the list
 	for _, file := range files {
-		if strings.HasSuffix(file, ".log") {
+		fs := filepath.ToSlash(file)
+		if strings.HasSuffix(fs, ".log") {
 			t.Errorf("collected file should not end with .log: %s", file)
 		}
-		if strings.Contains(file, "node_modules") {
+		if strings.Contains(fs, "node_modules/") {
 			t.Errorf("collected file should not be from node_modules: %s", file)
 		}
-		if strings.Contains(file, "build") && strings.Contains(file, "build/output.txt") {
+		if strings.Contains(fs, "build/output.txt") {
 			t.Errorf("collected file should not be from build directory: %s", file)
 		}
 	}
 
 	// Build output with tree
 	var output bytes.Buffer
-	
+
 	writeHeader(&output, "FILE HIERARCHY")
 	writeTree(&output, []string{"."}, files)
 	output.WriteString("\n")
@@ -475,8 +477,7 @@ func TestEndToEnd_WithTreeAndExclusions(t *testing.T) {
 		t.Error("output should contain FILE HIERARCHY header")
 	}
 
-	// Check for excluded files more precisely - look for actual file names
-	// not just the extension (to avoid false positives from .gitignore mention)
+	// Check for excluded files precisely
 	if strings.Contains(result, "debug.log") || strings.Contains(result, "error.log") {
 		t.Error("output should not contain debug.log or error.log files")
 	}
@@ -490,13 +491,13 @@ func TestEndToEnd_WithTreeAndExclusions(t *testing.T) {
 
 func TestCollectFiles_NonExistentPath(t *testing.T) {
 	matcher := &ExcludeMatcher{}
-	
+
 	// Capture stderr
 	oldStderr := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	files, err := collectFiles([]string{"/totally/nonexistent/path"}, matcher)
+	files, err := collectFiles([]string{"/totally/nonexistent/path"}, matcher, false)
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -526,8 +527,8 @@ func TestCollectFiles_SortedOutput(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	matcher := &ExcludeMatcher{}
-	
-	files, err := collectFiles([]string{filepath.Join(tmpDir, "src")}, matcher)
+
+	files, err := collectFiles([]string{filepath.Join(tmpDir, "src")}, matcher, false)
 	if err != nil {
 		t.Fatalf("collectFiles failed: %v", err)
 	}
@@ -547,13 +548,13 @@ func TestGitignoreWithAbsolutePaths(t *testing.T) {
 	// Save original directory
 	originalDir, _ := os.Getwd()
 	defer os.Chdir(originalDir)
-	
+
 	// Change to tmpDir (this is what the end-to-end test does)
 	os.Chdir(tmpDir)
 
 	// Build matcher using absolute path to .gitignore
 	gitignorePath := filepath.Join(tmpDir, ".gitignore")
-	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{})
+	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -580,3 +581,102 @@ func TestGitignoreWithAbsolutePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectFiles_CaseInsensitive(t *testing.T) {
+	tmpDir := setupTestDirectory(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Create files with different cases
+	testFiles := map[string]string{
+		"TestFile.go":  "package test",
+		"testfile.txt": "test content",
+		"TESTFILE.md":  "# Test",
+		"MyTest.go":    "package mytest",
+	}
+
+	for filename, content := range testFiles {
+		fullPath := filepath.Join(tmpDir, filename)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Change to tmpDir
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	matcher := &ExcludeMatcher{}
+
+	tests := []struct {
+		name          string
+		pattern       string
+		ignoreCase    bool
+		expectedMin   int
+		expectedFiles []string
+	}{
+		{
+			name:          "case sensitive *test* - lowercase only",
+			pattern:       "*test*",
+			ignoreCase:    false,
+			expectedMin:   1,
+			expectedFiles: []string{"testfile.txt"},
+		},
+		{
+			name:          "case insensitive *test* - all variations",
+			pattern:       "*test*",
+			ignoreCase:    true,
+			expectedMin:   4,
+			expectedFiles: []string{"TestFile.go", "testfile.txt", "TESTFILE.md", "MyTest.go"},
+		},
+		{
+			name:          "case insensitive *TEST*",
+			pattern:       "*TEST*",
+			ignoreCase:    true,
+			expectedMin:   4,
+			expectedFiles: []string{"TestFile.go", "testfile.txt", "TESTFILE.md", "MyTest.go"},
+		},
+		{
+			name:          "case sensitive *.GO - no matches",
+			pattern:       "*.GO",
+			ignoreCase:    false,
+			expectedMin:   0,
+			expectedFiles: []string{},
+		},
+		{
+			name:          "case insensitive *.GO - matches .go files",
+			pattern:       "*.GO",
+			ignoreCase:    true,
+			expectedMin:   2,
+			expectedFiles: []string{"TestFile.go", "MyTest.go"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files, err := collectFiles([]string{tt.pattern}, matcher, tt.ignoreCase)
+			if err != nil {
+				t.Fatalf("collectFiles failed: %v", err)
+			}
+
+			if len(files) < tt.expectedMin {
+				t.Errorf("expected at least %d files, got %d", tt.expectedMin, len(files))
+			}
+
+			// Check that expected files are present
+			for _, expectedFile := range tt.expectedFiles {
+				found := false
+				for _, f := range files {
+					if strings.HasSuffix(f, expectedFile) {
+						found = true
+						break
+					}
+				}
+				if !found && len(tt.expectedFiles) > 0 {
+					t.Errorf("expected file %s not found in results", expectedFile)
+				}
+			}
+		})
+	}
+}
+

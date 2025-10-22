@@ -27,13 +27,14 @@ type Config struct {
 type ExcludeMatcher struct {
 	gitignoreMatcher *gitignore.GitIgnore
 	globPatterns     []string
+	ignoreCase       bool
 }
 
 func main() {
 	cfg := parseArgs()
 
 	// Build exclude matcher
-	matcher, err := buildExcludeMatcher(cfg.ExcludeFiles, cfg.Excludes)
+	matcher, err := buildExcludeMatcher(cfg.ExcludeFiles, cfg.Excludes, cfg.IgnoreCase)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading exclude patterns: %v\n", err)
 		os.Exit(1)
@@ -97,10 +98,10 @@ func parseArgs() *Config {
 
 	// Manual argument parsing to allow intermixed flags and paths
 	args := os.Args[1:]
-	
+
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		switch arg {
 		case "-h", "--help":
 			printUsage()
@@ -175,9 +176,11 @@ Examples:
 `)
 }
 
-func buildExcludeMatcher(files []string, globPatterns []string) (*ExcludeMatcher, error) {
+// buildExcludeMatcher builds an ExcludeMatcher from ignore files and -e patterns.
+func buildExcludeMatcher(files []string, globPatterns []string, ignoreCase bool) (*ExcludeMatcher, error) {
 	matcher := &ExcludeMatcher{
 		globPatterns: globPatterns,
+		ignoreCase:   ignoreCase,
 	}
 
 	// Collect all patterns from files
@@ -210,12 +213,15 @@ func readPatternsFromFile(path string) ([]string, error) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Don't skip comments - let gitignore library handle them
-		// Don't skip empty lines - let gitignore library handle them
+		// Keep comments/empties; gitignore lib will handle them
 		patterns = append(patterns, line)
 	}
 
 	return patterns, scanner.Err()
+}
+
+func hasGlobChars(s string) bool {
+	return strings.ContainsAny(s, "*?[")
 }
 
 func (m *ExcludeMatcher) ShouldExclude(path string) bool {
@@ -225,47 +231,93 @@ func (m *ExcludeMatcher) ShouldExclude(path string) bool {
 		relPath = path
 	}
 
-	// Check gitignore patterns (if loaded from --exclude-from)
-	if m.gitignoreMatcher != nil && m.gitignoreMatcher.MatchesPath(relPath) {
+	// Normalize separators for robust matching
+	osSep := string(filepath.Separator)
+	relNorm := strings.ReplaceAll(relPath, "/", osSep)
+	base := filepath.Base(relNorm)
+
+	lower := func(s string) string {
+		if m.ignoreCase {
+			return strings.ToLower(s)
+		}
+		return s
+	}
+	relCmp := lower(relNorm)
+	baseCmp := lower(base)
+
+	// 1) Check gitignore matcher (if any)
+	if m.gitignoreMatcher != nil && m.gitignoreMatcher.MatchesPath(relNorm) {
 		return true
 	}
 
-	// Check glob patterns from -e/--exclude
-	for _, pattern := range m.globPatterns {
-		// Handle directory patterns
-		if strings.HasSuffix(pattern, "/") {
-			if strings.HasPrefix(relPath+"/", pattern) || strings.Contains(relPath, "/"+strings.TrimSuffix(pattern, "/")+"/") {
+	// 2) Check our -e/--exclude glob patterns
+	for _, raw := range m.globPatterns {
+		pat := strings.TrimSpace(raw)
+		if pat == "" {
+			continue
+		}
+
+		// Normalize separators in the pattern so user-written "/" also works on Windows
+		pat = strings.ReplaceAll(pat, "/", osSep)
+		patCmp := lower(pat)
+
+		// Directory patterns ending with separator
+		if strings.HasSuffix(patCmp, osSep) {
+			dirPat := strings.TrimSuffix(patCmp, osSep)
+
+			// Simple directory name (no globs, no sep) like "__pycache__/"
+			if !hasGlobChars(dirPat) && !strings.Contains(dirPat, osSep) {
+				// Dir itself
+				if relCmp == dirPat || relCmp == dirPat+osSep {
+					return true
+				}
+				// At root
+				if strings.HasPrefix(relCmp, dirPat+osSep) {
+					return true
+				}
+				// Nested segment anywhere
+				if strings.Contains(relCmp, osSep+dirPat+osSep) {
+					return true
+				}
+				continue
+			}
+
+			// Complex dir pattern: treat as prefix of any content under it
+			dirAny := dirPat + osSep + "*"
+			if matchPath(dirAny, relCmp) {
 				return true
 			}
+			continue
 		}
 
-		// Match against basename
-		matched, _ := filepath.Match(pattern, filepath.Base(relPath))
-		if matched {
-			return true
-		}
-
-		// Match against full relative path
-		matched, _ = filepath.Match(pattern, relPath)
-		if matched {
-			return true
-		}
-
-		// Check if any path component matches
-		parts := strings.Split(relPath, string(filepath.Separator))
-		for _, part := range parts {
-			matched, _ := filepath.Match(pattern, part)
-			if matched {
+		// If pattern contains a path separator, match against full relative path
+		if strings.Contains(patCmp, osSep) {
+			if matchPath(patCmp, relCmp) {
 				return true
 			}
+			continue
+		}
+
+		// Otherwise match against basename
+		if matchPath(patCmp, baseCmp) {
+			return true
 		}
 	}
 
 	return false
 }
 
+func matchPath(pattern, target string) bool {
+	ok, _ := filepath.Match(pattern, target)
+	return ok
+}
+
 func isGlobPattern(path string) bool {
 	return strings.ContainsAny(path, "*?[")
+}
+
+func containsAnySep(s string) bool {
+	return strings.Contains(s, "/") || strings.Contains(s, string(filepath.Separator))
 }
 
 func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]string, error) {
@@ -283,9 +335,19 @@ func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]s
 					if err != nil {
 						return nil // Skip errors
 					}
+
+					absPath, _ := filepath.Abs(p)
+
+					// Exclude?
+					if matcher.ShouldExclude(absPath) {
+						if fi.IsDir() {
+							return filepath.SkipDir
+						}
+						return nil
+					}
+
 					if !fi.IsDir() {
-						absPath, _ := filepath.Abs(p)
-						if !matcher.ShouldExclude(absPath) && !seen[absPath] {
+						if !seen[absPath] {
 							result = append(result, absPath)
 							seen[absPath] = true
 						}
@@ -296,7 +358,6 @@ func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]s
 					return nil, err
 				}
 			} else {
-				// Single file
 				absPath, _ := filepath.Abs(path)
 				if !matcher.ShouldExclude(absPath) && !seen[absPath] {
 					result = append(result, absPath)
@@ -305,28 +366,55 @@ func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]s
 			}
 		} else if isGlobPattern(path) {
 			// Glob pattern - search from current directory
+			pattern := path
 			err := filepath.Walk(".", func(p string, fi os.FileInfo, err error) error {
 				if err != nil {
 					return nil
 				}
-				if !fi.IsDir() {
-					basename := filepath.Base(p)
-					var matched bool
-					
-					if ignoreCase {
-						// Case-insensitive matching
-						matched, _ = filepath.Match(strings.ToLower(path), strings.ToLower(basename))
-					} else {
-						// Case-sensitive matching
-						matched, _ = filepath.Match(path, basename)
+
+				absPath, _ := filepath.Abs(p)
+
+				// Exclude?
+				if matcher.ShouldExclude(absPath) {
+					if fi.IsDir() {
+						return filepath.SkipDir
 					}
-					
-					if matched {
-						absPath, _ := filepath.Abs(p)
-						if !matcher.ShouldExclude(absPath) && !seen[absPath] {
-							result = append(result, absPath)
-							seen[absPath] = true
-						}
+					return nil
+				}
+
+				if fi.IsDir() {
+					return nil
+				}
+
+				rel, _ := filepath.Rel(".", p)
+				sep := string(filepath.Separator)
+
+				// Normalize both sides for matching
+				patNorm := strings.ReplaceAll(pattern, "/", sep)
+				target := rel
+
+				var matched bool
+				if containsAnySep(patNorm) {
+					// Match against the relative path when the pattern has a separator
+					if ignoreCase {
+						matched = matchPath(strings.ToLower(patNorm), strings.ToLower(target))
+					} else {
+						matched = matchPath(patNorm, target)
+					}
+				} else {
+					// Match against basename when there's no separator
+					name := filepath.Base(rel)
+					if ignoreCase {
+						matched = matchPath(strings.ToLower(patNorm), strings.ToLower(name))
+					} else {
+						matched = matchPath(patNorm, name)
+					}
+				}
+
+				if matched {
+					if !seen[absPath] {
+						result = append(result, absPath)
+						seen[absPath] = true
 					}
 				}
 				return nil
@@ -469,3 +557,4 @@ func copyToClipboard(data []byte) error {
 	cmd.Stdin = bytes.NewReader(data)
 	return cmd.Run()
 }
+

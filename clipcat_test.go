@@ -21,7 +21,7 @@ func TestIsGlobPattern(t *testing.T) {
 		{"no glob", "regular.txt", false},
 		{"path without glob", "src/main.go", false},
 		{"empty string", "", false},
-		{"multiple globs", "**/*.go", true},
+		{"multiple globs", "**/*.go", true}, // contains '*'
 	}
 
 	for _, tt := range tests {
@@ -36,7 +36,7 @@ func TestIsGlobPattern(t *testing.T) {
 
 func TestExcludeMatcherShouldExclude_GlobPatterns(t *testing.T) {
 	matcher := &ExcludeMatcher{
-		globPatterns: []string{"*.log", "temp/", "__pycache__"},
+		globPatterns: []string{"*.log", "temp/", "__pycache__/"}, // note trailing slash for dir
 	}
 
 	tests := []struct {
@@ -50,7 +50,7 @@ func TestExcludeMatcherShouldExclude_GlobPatterns(t *testing.T) {
 		{"matches temp directory", "temp/file.txt", true},
 		{"matches pycache anywhere", "src/__pycache__/file.pyc", true},
 		{"doesn't match partial", "src/temporary/file.txt", false},
-		{"matches at root", "__pycache__", true},
+		{"matches at root", "__pycache__/", true},
 	}
 
 	for _, tt := range tests {
@@ -140,7 +140,7 @@ func TestGetRelativePath(t *testing.T) {
 	roots := []string{srcDir}
 
 	result := getRelativePath(absTestFile, roots)
-	
+
 	if !strings.HasSuffix(result, ":main.go") {
 		t.Errorf("getRelativePath result %q doesn't end with :main.go", result)
 	}
@@ -159,12 +159,12 @@ func TestGetRelativePath_WithGlobInRoots(t *testing.T) {
 	}
 
 	absTestFile, _ := filepath.Abs(testFile)
-	
+
 	// Glob patterns should be skipped in root matching
 	roots := []string{"*test*", tmpDir}
 
 	result := getRelativePath(absTestFile, roots)
-	
+
 	// Should match tmpDir, not the glob pattern
 	if !strings.Contains(result, ":test.go") {
 		t.Errorf("getRelativePath result %q doesn't contain :test.go", result)
@@ -172,7 +172,7 @@ func TestGetRelativePath_WithGlobInRoots(t *testing.T) {
 }
 
 func TestBuildExcludeMatcher_EmptyPatterns(t *testing.T) {
-	matcher, err := buildExcludeMatcher([]string{}, []string{})
+	matcher, err := buildExcludeMatcher([]string{}, []string{}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestBuildExcludeMatcher_EmptyPatterns(t *testing.T) {
 
 func TestBuildExcludeMatcher_WithGlobPatterns(t *testing.T) {
 	patterns := []string{"*.log", "*.tmp"}
-	matcher, err := buildExcludeMatcher([]string{}, patterns)
+	matcher, err := buildExcludeMatcher([]string{}, patterns, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestBuildExcludeMatcher_WithFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{})
+	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestBuildExcludeMatcher_WithFile(t *testing.T) {
 }
 
 func TestBuildExcludeMatcher_NonExistentFile(t *testing.T) {
-	_, err := buildExcludeMatcher([]string{"/nonexistent/file.txt"}, []string{})
+	_, err := buildExcludeMatcher([]string{"/nonexistent/file.txt"}, []string{}, false)
 	if err == nil {
 		t.Error("expected error for nonexistent file, got nil")
 	}
@@ -257,7 +257,7 @@ node_modules/
 		t.Fatal(err)
 	}
 
-	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{})
+	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestExcludeMatcherShouldExclude_MixedPatterns(t *testing.T) {
 	}
 
 	// Mix gitignore patterns and glob patterns
-	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{"*.tmp", "build/"})
+	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{"*.tmp", "build/"}, false)
 	if err != nil {
 		t.Fatalf("buildExcludeMatcher failed: %v", err)
 	}
@@ -326,3 +326,4 @@ func TestExcludeMatcherShouldExclude_MixedPatterns(t *testing.T) {
 		})
 	}
 }
+
