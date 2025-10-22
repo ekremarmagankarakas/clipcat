@@ -4,18 +4,20 @@ A powerful command-line tool to concatenate files with headers and copy to clipb
 
 ## ✨ Features
 
-- 📁 **Flexible Input**: Single files, directories (recursive), or glob patterns
-- 🚫 **Smart Exclusions**: Full `.gitignore` semantics support + custom glob patterns
-- 🌲 **Tree View**: Optional file hierarchy visualization
-- 📋 **Cross-Platform Clipboard**: Auto-detects `xclip`, `wl-copy`, `pbcopy`, or `clip.exe`
-- ⚡ **Fast**: Single binary with no runtime dependencies
-- 🎯 **Zero Config**: Works out of the box
+* 📁 **Flexible Input**: Single files, directories (recursive), or glob patterns
+* 🚫 **Smart Exclusions**: Full `.gitignore` semantics + custom glob patterns
+  *(now: **directory excludes require a trailing `/`**)*
+* 🌲 **Tree View**: Optional file hierarchy visualization
+* 🧠 **Case-insensitive matching**: `-i/--ignore-case` for patterns and globs
+* 📋 **Cross-Platform Clipboard**: Auto-detects `xclip`, `wl-copy`, `pbcopy`, or `clip.exe`
+* ⚡ **Fast**: Single binary with no runtime dependencies
+* 🎯 **Zero Config**: Works out of the box
 
 ## 📦 Installation
 
 ### Pre-built Binaries
 
-Download from [Releases](https://github.com/YOUR_USERNAME/clipcat/releases):
+Download from Releases:
 
 ```bash
 # Linux
@@ -53,11 +55,12 @@ make install
 
 ### System Requirements
 
-**Clipboard command** (one of):
-- Linux X11: `xclip` (`sudo apt install xclip`)
-- Linux Wayland: `wl-copy` (`sudo apt install wl-clipboard`)
-- macOS: `pbcopy` (built-in)
-- Windows: `clip.exe` (built-in)
+**One** of the following clipboard commands:
+
+* Linux X11: `xclip` (`sudo apt install xclip`)
+* Linux Wayland: `wl-copy` (`sudo apt install wl-clipboard`)
+* macOS: `pbcopy` (built-in)
+* Windows: `clip.exe` (built-in)
 
 ## 🚀 Quick Start
 
@@ -68,13 +71,13 @@ clipcat README.md
 # Copy entire directory recursively
 clipcat src/
 
-# Find files matching a pattern
+# Find files matching a pattern (quote to avoid shell expansion)
 clipcat '*test*.go'
 
-# With .gitignore exclusions
+# Respect .gitignore (negations supported)
 clipcat . --exclude-from .gitignore
 
-# With tree view
+# Show a tree first
 clipcat src/ -t
 
 # Multiple sources with custom exclusions
@@ -88,7 +91,8 @@ clipcat [OPTIONS] <path1> [<path2> ...]
 
 Options:
   -e, --exclude PATTERN     Exclude glob pattern (repeatable)
-      --exclude-from FILE   Read patterns from FILE with full .gitignore semantics
+      --exclude-from FILE   Read patterns from FILE with full .gitignore semantics (repeatable)
+  -i, --ignore-case         Make glob pattern matching case-insensitive
   -t, --tree                Prepend a FILE HIERARCHY section
       --only-tree           Copy only the FILE HIERARCHY (no file contents)
   -p, --print               Also print to stdout
@@ -99,48 +103,57 @@ Options:
 
 1. **Single file**: `clipcat main.go`
 2. **Directory** (recursive): `clipcat src/`
-3. **Glob pattern**: `clipcat '*checkin*'` (searches entire tree)
+3. **Glob pattern**: `clipcat '*checkin*'` (searches the whole tree)
 4. **Mixed**: `clipcat README.md src/ '*test*'`
 
-### Exclusion Patterns
+### Pattern Matching Semantics (important!)
 
-#### Glob Patterns (`-e/--exclude`)
+* **Path-aware vs basename-only**
 
-Simple pattern matching:
+  * If your pattern **contains a path separator** (`/` or `\`), it matches against the **relative path** (e.g., `src/*.go`).
+  * If your pattern **has no separator**, it matches the **basename** only (e.g., `*.go`, `README.md`).
 
-```bash
-clipcat . -e '*.log' -e '*.tmp' -e '__pycache__'
-```
+* **Directory excludes must end with `/`**
 
-#### Gitignore Files (`--exclude-from`)
+  * `-e node_modules/` → excludes any directory named `node_modules` (and all its contents)
+  * `-e build/` → excludes `build` directories
+  * `-e clipcat/` → excludes directories named `clipcat`
+  * `-e clipcat` (no slash) → **only files** named `clipcat` (e.g., built binary), **not** the directory
 
-Full `.gitignore` semantics:
+* **Case-insensitive option**
 
-```bash
-clipcat . --exclude-from .gitignore
-```
+  * Add `-i` / `--ignore-case` to make exclude/collect globs case-insensitive:
 
-Supports:
-- ✅ Negation: `!keep.txt`
-- ✅ Root-anchored: `/build` vs `build`
-- ✅ Directory markers: `node_modules/`
-- ✅ Deep wildcards: `**/test/**/*.go`
-- ✅ Comments and blank lines
+    ```bash
+    clipcat . -i -e '*.MD' -e 'docs/'   # matches README.MD, Docs/, etc.
+    ```
 
-**Mix both:**
+* **.gitignore support**
+
+  * `--exclude-from FILE` uses full `.gitignore` semantics:
+
+    * Negation: `!keep.txt`
+    * Root anchored: `/dist` vs `dist`
+    * Directory markers: `node_modules/`
+    * Deep wildcards: `**/tests/**/*.go`
+    * Comments & blanks are handled by the library
+
+**Combine both:**
+
 ```bash
 clipcat . --exclude-from .gitignore -e '*.bak' -e 'temp/'
 ```
 
 ### Tree View
 
-Show file hierarchy before contents:
+Show a file hierarchy before file contents:
 
 ```bash
 clipcat src/ -t
 ```
 
-Output:
+Output (example):
+
 ```
 ==============
 FILE HIERARCHY
@@ -165,21 +178,21 @@ src/
 ### Share Code with AI
 
 ```bash
-# Copy all Python files except tests
+# Copy all Python files except tests and caches
 clipcat '*.py' -e '*test*.py' -e '__pycache__/' -t
 ```
 
 ### Project Overview
 
 ```bash
-# Get complete project structure
+# Show only the file hierarchy, respecting .gitignore
 clipcat . --exclude-from .gitignore --only-tree -p
 ```
 
 ### Find Specific Files
 
 ```bash
-# All files with "config" in the name
+# All files with "config" in the name (any depth)
 clipcat '*config*' --exclude-from .gitignore -t
 ```
 
@@ -193,16 +206,16 @@ clipcat '*.md' -t -p > documentation.txt
 ### Code Review Prep
 
 ```bash
-# All changed files in a feature
-clipcat src/feature/ tests/feature/ -e '*.pyc' -t
+# All files in feature dirs, skip build artifacts
+clipcat src/feature/ tests/feature/ -e 'dist/' -e 'build/' -t
 ```
 
 ## 🛠️ Development
 
 ### Prerequisites
 
-- Go 1.21+
-- Make (optional, for convenience commands)
+* Go 1.21+
+* Make (optional)
 
 ### Setup
 
@@ -255,33 +268,13 @@ make help               # Show all commands
 
 ## 📊 Test Coverage
 
-Current coverage: **61%**
+Current coverage: **~62%**
 
 ```bash
 # Generate HTML coverage report
 make test-coverage
 # Opens coverage.html in browser
 ```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Write tests for new functionality
-4. Ensure all tests pass (`make test`)
-5. Format code (`make fmt`)
-6. Commit changes (`git commit -m 'Add amazing feature'`)
-7. Push to branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-### Guidelines
-
-- Write tests for new features
-- Maintain or improve code coverage
-- Follow Go conventions
-- Update README if adding user-facing features
 
 ## 📝 Output Format
 
@@ -305,35 +298,64 @@ Unreadable files show `[unreadable]` instead of contents.
 
 ## 🔧 Troubleshooting
 
-### "no clipboard command found"
+### “no clipboard command found”
 
 Install a clipboard tool:
-- **Linux X11**: `sudo apt install xclip`
-- **Linux Wayland**: `sudo apt install wl-clipboard`
-- **macOS/Windows**: Built-in, should work automatically
+
+* **Linux X11**: `sudo apt install xclip`
+* **Linux Wayland**: `sudo apt install wl-clipboard`
+* **macOS/Windows**: Built-in
+
+### “No files matched after applying excludes”
+
+* Remember: **directory excludes must end with `/`**.
+
+  * `-e clipcat/` excludes directories named `clipcat`;
+  * `-e clipcat` excludes only files named `clipcat`.
+* If running from a **parent directory**, `-e clipcat/` will exclude the repo folder itself.
+  Run inside the repo (`cd clipcat && clipcat . ...`) or scope the pattern (e.g., `-e '*/clipcat/'`).
 
 ### Exclusions not working
 
-Ensure you're in the right directory when using relative paths in `.gitignore`. The tool matches patterns relative to the current working directory.
+* `.gitignore` patterns are resolved relative to your **current working directory**.
+* Quote globs to prevent the shell from expanding them first:
 
-### Glob patterns not matching
+  ```bash
+  clipcat '*test*'   # ✅
+  clipcat *test*     # ❌ shell expands before clipcat sees it
+  ```
 
-Remember to quote glob patterns to prevent shell expansion:
-```bash
-clipcat '*test*'  # ✅ Correct
-clipcat *test*    # ❌ Shell expands first
-```
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Write tests for new functionality
+4. Ensure all tests pass (`make test`)
+5. Format code (`make fmt`)
+6. Commit changes (`git commit -m 'Add amazing feature'`)
+7. Push to branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
+
+### Guidelines
+
+* Write tests for new features
+* Maintain or improve code coverage
+* Follow Go conventions
+* Update README if adding user-facing features
 
 ## 🙏 Acknowledgments
 
-- [go-gitignore](https://github.com/sabhiram/go-gitignore) - Gitignore pattern matching
-- Inspired by the need to share code context with AI assistants
+* [go-gitignore](https://github.com/sabhiram/go-gitignore) — gitignore pattern matching
+* Inspired by the need to share code context with AI assistants
 
 ## 📮 Contact
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/clipcat/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/clipcat/discussions)
+* **Issues**: [https://github.com/ekremarmagankarakas/clipcat/issues](https://github.com/ekremarmagankarakas/clipcat/issues)
+* **Discussions**: [https://github.com/ekremarmagankarakas/clipcat/discussions](https://github.com/ekremarmagankarakas/clipcat/discussions)
 
 ---
 
 Made with ❤️ for developers who love efficiency
+

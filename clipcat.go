@@ -224,7 +224,7 @@ func hasGlobChars(s string) bool {
 	return strings.ContainsAny(s, "*?[")
 }
 
-func (m *ExcludeMatcher) ShouldExclude(path string) bool {
+func (m *ExcludeMatcher) ShouldExclude(path string, isDir bool) bool {
 	// Convert to relative path for gitignore matching
 	relPath, err := filepath.Rel(".", path)
 	if err != nil {
@@ -261,17 +261,17 @@ func (m *ExcludeMatcher) ShouldExclude(path string) bool {
 		pat = strings.ReplaceAll(pat, "/", osSep)
 		patCmp := lower(pat)
 
-		// Directory patterns ending with separator
+		// Directory patterns MUST end with a separator to affect directories.
 		if strings.HasSuffix(patCmp, osSep) {
 			dirPat := strings.TrimSuffix(patCmp, osSep)
 
-			// Simple directory name (no globs, no sep) like "__pycache__/"
+			// Simple dir name (no globs/seps) like "__pycache__/"
 			if !hasGlobChars(dirPat) && !strings.Contains(dirPat, osSep) {
-				// Dir itself
-				if relCmp == dirPat || relCmp == dirPat+osSep {
+				// Directory itself
+				if isDir && (relCmp == dirPat || relCmp == dirPat+osSep) {
 					return true
 				}
-				// At root
+				// Any content at root under that dir
 				if strings.HasPrefix(relCmp, dirPat+osSep) {
 					return true
 				}
@@ -282,7 +282,7 @@ func (m *ExcludeMatcher) ShouldExclude(path string) bool {
 				continue
 			}
 
-			// Complex dir pattern: treat as prefix of any content under it
+			// Complex dir pattern (globs or seps): treat as prefix for anything under it
 			dirAny := dirPat + osSep + "*"
 			if matchPath(dirAny, relCmp) {
 				return true
@@ -290,16 +290,23 @@ func (m *ExcludeMatcher) ShouldExclude(path string) bool {
 			continue
 		}
 
-		// If pattern contains a path separator, match against full relative path
+		// Non-slash patterns WITHOUT trailing slash:
+		// - If they contain a separator → path-aware file match on full rel path
+		// - If they do NOT contain a separator → match FILE BASENAME ONLY
 		if strings.Contains(patCmp, osSep) {
+			// Path-aware pattern; only meaningful for files (but matching against full path is fine)
 			if matchPath(patCmp, relCmp) {
-				return true
+				// If the path matches and we're visiting a directory, don't exclude the directory
+				// (these patterns are intended for files). For directories, keep walking.
+				if !isDir {
+					return true
+				}
 			}
 			continue
 		}
 
-		// Otherwise match against basename
-		if matchPath(patCmp, baseCmp) {
+		// Basename-only pattern: applies to FILES only (require '/' for directories)
+		if !isDir && matchPath(patCmp, baseCmp) {
 			return true
 		}
 	}
@@ -339,7 +346,7 @@ func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]s
 					absPath, _ := filepath.Abs(p)
 
 					// Exclude?
-					if matcher.ShouldExclude(absPath) {
+					if matcher.ShouldExclude(absPath, fi.IsDir()) {
 						if fi.IsDir() {
 							return filepath.SkipDir
 						}
@@ -359,7 +366,7 @@ func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]s
 				}
 			} else {
 				absPath, _ := filepath.Abs(path)
-				if !matcher.ShouldExclude(absPath) && !seen[absPath] {
+				if !matcher.ShouldExclude(absPath, false) && !seen[absPath] {
 					result = append(result, absPath)
 					seen[absPath] = true
 				}
@@ -375,7 +382,7 @@ func collectFiles(paths []string, matcher *ExcludeMatcher, ignoreCase bool) ([]s
 				absPath, _ := filepath.Abs(p)
 
 				// Exclude?
-				if matcher.ShouldExclude(absPath) {
+				if matcher.ShouldExclude(absPath, fi.IsDir()) {
 					if fi.IsDir() {
 						return filepath.SkipDir
 					}

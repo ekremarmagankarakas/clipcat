@@ -563,18 +563,19 @@ func TestGitignoreWithAbsolutePaths(t *testing.T) {
 	testCases := []struct {
 		name     string
 		path     string
+		isDir    bool
 		expected bool
 	}{
-		{"absolute log file", filepath.Join(tmpDir, "debug.log"), true},
-		{"absolute node_modules", filepath.Join(tmpDir, "node_modules", "pkg.json"), true},
-		{"absolute build", filepath.Join(tmpDir, "build", "output.txt"), true},
-		{"absolute source file", filepath.Join(tmpDir, "src", "app.go"), false},
-		{"absolute readme", filepath.Join(tmpDir, "README.md"), false},
+		{"absolute log file", filepath.Join(tmpDir, "debug.log"), false, true},
+		{"absolute node_modules", filepath.Join(tmpDir, "node_modules", "pkg.json"), false, true},
+		{"absolute build", filepath.Join(tmpDir, "build", "output.txt"), false, true},
+		{"absolute source file", filepath.Join(tmpDir, "src", "app.go"), false, false},
+		{"absolute readme", filepath.Join(tmpDir, "README.md"), false, false},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := matcher.ShouldExclude(tc.path)
+			result := matcher.ShouldExclude(tc.path, tc.isDir)
 			if result != tc.expected {
 				t.Errorf("ShouldExclude(%q) = %v, want %v", tc.path, result, tc.expected)
 			}

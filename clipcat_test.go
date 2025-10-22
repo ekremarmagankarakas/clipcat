@@ -42,20 +42,21 @@ func TestExcludeMatcherShouldExclude_GlobPatterns(t *testing.T) {
 	tests := []struct {
 		name     string
 		path     string
+		isDir    bool
 		expected bool
 	}{
-		{"matches log extension", "debug.log", true},
-		{"matches log in subdir", "src/debug.log", true},
-		{"doesn't match different extension", "debug.txt", false},
-		{"matches temp directory", "temp/file.txt", true},
-		{"matches pycache anywhere", "src/__pycache__/file.pyc", true},
-		{"doesn't match partial", "src/temporary/file.txt", false},
-		{"matches at root", "__pycache__/", true},
+		{"matches log extension", "debug.log", false, true},
+		{"matches log in subdir", "src/debug.log", false, true},
+		{"doesn't match different extension", "debug.txt", false, false},
+		{"matches temp directory", "temp/file.txt", false, true},
+		{"matches pycache anywhere", "src/__pycache__/file.pyc", false, true},
+		{"doesn't match partial", "src/temporary/file.txt", false, false},
+		{"matches at root", "__pycache__", true, true}, // directory itself
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matcher.ShouldExclude(tt.path)
+			result := matcher.ShouldExclude(tt.path, tt.isDir)
 			if result != tt.expected {
 				t.Errorf("ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
 			}
@@ -224,7 +225,7 @@ func TestBuildExcludeMatcher_WithFile(t *testing.T) {
 	}
 
 	// Test that it excludes correctly
-	if !matcher.ShouldExclude("test.log") {
+	if !matcher.ShouldExclude("test.log", false) {
 		t.Error("expected test.log to be excluded")
 	}
 }
@@ -265,18 +266,19 @@ node_modules/
 	tests := []struct {
 		name     string
 		path     string
+		isDir    bool
 		expected bool
 	}{
-		{"excludes log files", "debug.log", true},
-		{"excludes node_modules", "node_modules/package.json", true},
-		{"excludes root txt", "root.txt", true},
-		{"doesn't exclude subdir txt", "src/root.txt", false},
-		{"includes negated important.log", "important.log", false},
+		{"excludes log files", "debug.log", false, true},
+		{"excludes node_modules", "node_modules/package.json", false, true},
+		{"excludes root txt", "root.txt", false, true},
+		{"doesn't exclude subdir txt", "src/root.txt", false, false},
+		{"includes negated important.log", "important.log", false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matcher.ShouldExclude(tt.path)
+			result := matcher.ShouldExclude(tt.path, tt.isDir)
 			if result != tt.expected {
 				t.Errorf("ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
 			}
@@ -309,17 +311,18 @@ func TestExcludeMatcherShouldExclude_MixedPatterns(t *testing.T) {
 	tests := []struct {
 		name     string
 		path     string
+		isDir    bool
 		expected bool
 	}{
-		{"excludes log (gitignore)", "debug.log", true},
-		{"excludes tmp (glob)", "test.tmp", true},
-		{"excludes build (glob)", "build/output.txt", true},
-		{"includes regular file", "main.go", false},
+		{"excludes log (gitignore)", "debug.log", false, true},
+		{"excludes tmp (glob)", "test.tmp", false, true},
+		{"excludes build (glob)", "build/output.txt", false, true},
+		{"includes regular file", "main.go", false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matcher.ShouldExclude(tt.path)
+			result := matcher.ShouldExclude(tt.path, tt.isDir)
 			if result != tt.expected {
 				t.Errorf("ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
 			}
