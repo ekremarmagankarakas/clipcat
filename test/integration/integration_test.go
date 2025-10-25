@@ -1,14 +1,15 @@
-package main
+package integration_test
 
 import (
 	"bytes"
+	"clipcat/pkg/collector"
+	"clipcat/pkg/exclude"
+	"clipcat/pkg/output"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// Integration Tests
 
 // setupTestDirectory creates a test directory structure
 func setupTestDirectory(t *testing.T) string {
@@ -63,11 +64,11 @@ func TestCollectFiles_SingleFile(t *testing.T) {
 	tmpDir := setupTestDirectory(t)
 	defer os.RemoveAll(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
-	files, err := collectFiles([]string{filepath.Join(tmpDir, "README.md")}, matcher, false)
+	files, err := collector.CollectFiles([]string{filepath.Join(tmpDir, "README.md")}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	if len(files) != 1 {
@@ -83,12 +84,12 @@ func TestCollectFiles_Directory(t *testing.T) {
 	tmpDir := setupTestDirectory(t)
 	defer os.RemoveAll(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 	srcDir := filepath.Join(tmpDir, "src")
 
-	files, err := collectFiles([]string{srcDir}, matcher, false)
+	files, err := collector.CollectFiles([]string{srcDir}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Should find app.go, button.go, format.go
@@ -110,9 +111,9 @@ func TestCollectFiles_DirectoryWithExclusions(t *testing.T) {
 
 	// Create matcher that excludes *.log and node_modules/
 	gitignorePath := filepath.Join(tmpDir, ".gitignore")
-	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{}, false)
+	matcher, err := exclude.BuildMatcher([]string{gitignorePath}, []string{}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	// Change to tmpDir for relative path matching
@@ -120,9 +121,9 @@ func TestCollectFiles_DirectoryWithExclusions(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(tmpDir)
 
-	files, err := collectFiles([]string{"."}, matcher, false)
+	files, err := collector.CollectFiles([]string{"."}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Should exclude *.log, node_modules/, and build/
@@ -168,11 +169,11 @@ func TestCollectFiles_GlobPattern(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
-	files, err := collectFiles([]string{"*test*"}, matcher, false)
+	files, err := collector.CollectFiles([]string{"*test*"}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Should find main_test.go and integration_test.go
@@ -193,16 +194,16 @@ func TestCollectFiles_MultipleInputs(t *testing.T) {
 	tmpDir := setupTestDirectory(t)
 	defer os.RemoveAll(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
 	inputs := []string{
 		filepath.Join(tmpDir, "README.md"),
 		filepath.Join(tmpDir, "src"),
 	}
 
-	files, err := collectFiles(inputs, matcher, false)
+	files, err := collector.CollectFiles(inputs, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Should find README.md + 3 files in src/
@@ -215,16 +216,16 @@ func TestCollectFiles_Deduplication(t *testing.T) {
 	tmpDir := setupTestDirectory(t)
 	defer os.RemoveAll(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
 	readmePath := filepath.Join(tmpDir, "README.md")
 
 	// Add the same file twice
 	inputs := []string{readmePath, readmePath}
 
-	files, err := collectFiles(inputs, matcher, false)
+	files, err := collector.CollectFiles(inputs, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Should only include the file once
@@ -243,10 +244,10 @@ func TestWriteTree_SingleRoot(t *testing.T) {
 		filepath.Join(tmpDir, "src", "utils", "format.go"),
 	}
 
-	var output bytes.Buffer
-	writeTree(&output, []string{filepath.Join(tmpDir, "src")}, files)
+	var outputBuf bytes.Buffer
+	output.WriteTree(&outputBuf, []string{filepath.Join(tmpDir, "src")}, files)
 
-	result := output.String()
+	result := outputBuf.String()
 
 	// Should show the tree structure
 	if !strings.Contains(result, "src/") {
@@ -282,10 +283,10 @@ func TestWriteTree_MultipleRoots(t *testing.T) {
 		filepath.Join(tmpDir, "tests"),
 	}
 
-	var output bytes.Buffer
-	writeTree(&output, roots, files)
+	var outputBuf bytes.Buffer
+	output.WriteTree(&outputBuf, roots, files)
 
-	result := output.String()
+	result := outputBuf.String()
 
 	// Should show both root sections
 	if !strings.Contains(result, "src/") {
@@ -310,10 +311,10 @@ func TestWriteTree_MultipleRoots(t *testing.T) {
 }
 
 func TestWriteHeader(t *testing.T) {
-	var output bytes.Buffer
-	writeHeader(&output, "/path/to/file.go")
+	var outputBuf bytes.Buffer
+	output.WriteHeader(&outputBuf, "/path/to/file.go")
 
-	result := output.String()
+	result := outputBuf.String()
 
 	// Should have three lines: bar, path, bar
 	lines := strings.Split(strings.TrimSpace(result), "\n")
@@ -357,20 +358,20 @@ func TestWriteFileContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var output bytes.Buffer
-	if err := writeFileContent(&output, tmpfile.Name()); err != nil {
-		t.Fatalf("writeFileContent failed: %v", err)
+	var outputBuf bytes.Buffer
+	if err := output.WriteFileContent(&outputBuf, tmpfile.Name()); err != nil {
+		t.Fatalf("WriteFileContent failed: %v", err)
 	}
 
-	result := output.String()
+	result := outputBuf.String()
 	if result != content {
 		t.Errorf("expected %q, got %q", content, result)
 	}
 }
 
 func TestWriteFileContent_Unreadable(t *testing.T) {
-	var output bytes.Buffer
-	err := writeFileContent(&output, "/nonexistent/file.txt")
+	var outputBuf bytes.Buffer
+	err := output.WriteFileContent(&outputBuf, "/nonexistent/file.txt")
 
 	if err == nil {
 		t.Error("expected error for nonexistent file")
@@ -386,23 +387,23 @@ func TestEndToEnd_BasicUsage(t *testing.T) {
 	os.Chdir(tmpDir)
 
 	// Collect files from src/
-	matcher := &ExcludeMatcher{}
-	files, err := collectFiles([]string{"src"}, matcher, false)
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
+	files, err := collector.CollectFiles([]string{"src"}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Build output with headers
-	var output bytes.Buffer
+	var outputBuf bytes.Buffer
 	for _, file := range files {
-		writeHeader(&output, file)
-		if err := writeFileContent(&output, file); err != nil {
-			output.WriteString("[unreadable]\n")
+		output.WriteHeader(&outputBuf, file)
+		if err := output.WriteFileContent(&outputBuf, file); err != nil {
+			outputBuf.WriteString("[unreadable]\n")
 		}
-		output.WriteString("\n")
+		outputBuf.WriteString("\n")
 	}
 
-	result := output.String()
+	result := outputBuf.String()
 
 	// Should contain headers
 	if !strings.Contains(result, "===") {
@@ -430,15 +431,15 @@ func TestEndToEnd_WithTreeAndExclusions(t *testing.T) {
 
 	// Build exclude matcher
 	gitignorePath := filepath.Join(tmpDir, ".gitignore")
-	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{}, false)
+	matcher, err := exclude.BuildMatcher([]string{gitignorePath}, []string{}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	// Collect files
-	files, err := collectFiles([]string{"."}, matcher, false)
+	files, err := collector.CollectFiles([]string{"."}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Verify excluded files are not in the list
@@ -456,21 +457,21 @@ func TestEndToEnd_WithTreeAndExclusions(t *testing.T) {
 	}
 
 	// Build output with tree
-	var output bytes.Buffer
+	var outputBuf bytes.Buffer
 
-	writeHeader(&output, "FILE HIERARCHY")
-	writeTree(&output, []string{"."}, files)
-	output.WriteString("\n")
+	output.WriteHeader(&outputBuf, "FILE HIERARCHY")
+	output.WriteTree(&outputBuf, []string{"."}, files)
+	outputBuf.WriteString("\n")
 
 	for _, file := range files {
-		writeHeader(&output, file)
-		if err := writeFileContent(&output, file); err != nil {
-			output.WriteString("[unreadable]\n")
+		output.WriteHeader(&outputBuf, file)
+		if err := output.WriteFileContent(&outputBuf, file); err != nil {
+			outputBuf.WriteString("[unreadable]\n")
 		}
-		output.WriteString("\n")
+		outputBuf.WriteString("\n")
 	}
 
-	result := output.String()
+	result := outputBuf.String()
 
 	// Should contain tree section
 	if !strings.Contains(result, "FILE HIERARCHY") {
@@ -490,14 +491,14 @@ func TestEndToEnd_WithTreeAndExclusions(t *testing.T) {
 }
 
 func TestCollectFiles_NonExistentPath(t *testing.T) {
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
 	// Capture stderr
 	oldStderr := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	files, err := collectFiles([]string{"/totally/nonexistent/path"}, matcher, false)
+	files, err := collector.CollectFiles([]string{"/totally/nonexistent/path"}, matcher, false)
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -508,7 +509,7 @@ func TestCollectFiles_NonExistentPath(t *testing.T) {
 
 	// Should not error, but should warn
 	if err != nil {
-		t.Errorf("collectFiles should not error on nonexistent path, got: %v", err)
+		t.Errorf("CollectFiles should not error on nonexistent path, got: %v", err)
 	}
 
 	// Should produce empty file list
@@ -526,11 +527,11 @@ func TestCollectFiles_SortedOutput(t *testing.T) {
 	tmpDir := setupTestDirectory(t)
 	defer os.RemoveAll(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
-	files, err := collectFiles([]string{filepath.Join(tmpDir, "src")}, matcher, false)
+	files, err := collector.CollectFiles([]string{filepath.Join(tmpDir, "src")}, matcher, false)
 	if err != nil {
-		t.Fatalf("collectFiles failed: %v", err)
+		t.Fatalf("CollectFiles failed: %v", err)
 	}
 
 	// Files should be sorted
@@ -554,9 +555,9 @@ func TestGitignoreWithAbsolutePaths(t *testing.T) {
 
 	// Build matcher using absolute path to .gitignore
 	gitignorePath := filepath.Join(tmpDir, ".gitignore")
-	matcher, err := buildExcludeMatcher([]string{gitignorePath}, []string{}, false)
+	matcher, err := exclude.BuildMatcher([]string{gitignorePath}, []string{}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	// Test with absolute paths (what collectFiles produces)
@@ -607,7 +608,7 @@ func TestCollectFiles_CaseInsensitive(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(tmpDir)
 
-	matcher := &ExcludeMatcher{}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{}, false)
 
 	tests := []struct {
 		name          string
@@ -655,9 +656,9 @@ func TestCollectFiles_CaseInsensitive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			files, err := collectFiles([]string{tt.pattern}, matcher, tt.ignoreCase)
+			files, err := collector.CollectFiles([]string{tt.pattern}, matcher, tt.ignoreCase)
 			if err != nil {
-				t.Fatalf("collectFiles failed: %v", err)
+				t.Fatalf("CollectFiles failed: %v", err)
 			}
 
 			if len(files) < tt.expectedMin {
@@ -680,4 +681,3 @@ func TestCollectFiles_CaseInsensitive(t *testing.T) {
 		})
 	}
 }
-

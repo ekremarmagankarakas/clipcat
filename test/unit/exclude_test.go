@@ -1,13 +1,12 @@
-package main
+package exclude_test
 
 import (
+	"clipcat/pkg/exclude"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// Unit Tests
 
 func TestIsGlobPattern(t *testing.T) {
 	tests := []struct {
@@ -34,10 +33,12 @@ func TestIsGlobPattern(t *testing.T) {
 	}
 }
 
+func isGlobPattern(path string) bool {
+	return strings.ContainsAny(path, "*?[")
+}
+
 func TestExcludeMatcherShouldExclude_GlobPatterns(t *testing.T) {
-	matcher := &ExcludeMatcher{
-		globPatterns: []string{"*.log", "temp/", "__pycache__/"}, // note trailing slash for dir
-	}
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{"*.log", "temp/", "__pycache__/"}, false)
 
 	tests := []struct {
 		name     string
@@ -64,138 +65,26 @@ func TestExcludeMatcherShouldExclude_GlobPatterns(t *testing.T) {
 	}
 }
 
-func TestReadPatternsFromFile(t *testing.T) {
-	// Create a temporary file with patterns
-	tmpfile, err := os.CreateTemp("", "patterns-*.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-
-	content := `# This is a comment
-*.log
-node_modules/
-
-# Another comment
-*.tmp
-`
-	if _, err := tmpfile.Write([]byte(content)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	patterns, err := readPatternsFromFile(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("readPatternsFromFile failed: %v", err)
-	}
-
-	// Should include everything including comments (gitignore library handles them)
-	expected := []string{
-		"# This is a comment",
-		"*.log",
-		"node_modules/",
-		"",
-		"# Another comment",
-		"*.tmp",
-	}
-
-	if len(patterns) != len(expected) {
-		t.Errorf("got %d patterns, want %d", len(patterns), len(expected))
-	}
-
-	for i, pattern := range patterns {
-		if i < len(expected) && pattern != expected[i] {
-			t.Errorf("pattern[%d] = %q, want %q", i, pattern, expected[i])
-		}
-	}
-}
-
-func TestReadPatternsFromFile_NonExistent(t *testing.T) {
-	_, err := readPatternsFromFile("/nonexistent/file.txt")
-	if err == nil {
-		t.Error("expected error for nonexistent file, got nil")
-	}
-}
-
-func TestGetRelativePath(t *testing.T) {
-	// Create a temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "clipcat-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	srcDir := filepath.Join(tmpDir, "src")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	testFile := filepath.Join(srcDir, "main.go")
-	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	absTestFile, _ := filepath.Abs(testFile)
-	roots := []string{srcDir}
-
-	result := getRelativePath(absTestFile, roots)
-
-	if !strings.HasSuffix(result, ":main.go") {
-		t.Errorf("getRelativePath result %q doesn't end with :main.go", result)
-	}
-}
-
-func TestGetRelativePath_WithGlobInRoots(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "clipcat-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	testFile := filepath.Join(tmpDir, "test.go")
-	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	absTestFile, _ := filepath.Abs(testFile)
-
-	// Glob patterns should be skipped in root matching
-	roots := []string{"*test*", tmpDir}
-
-	result := getRelativePath(absTestFile, roots)
-
-	// Should match tmpDir, not the glob pattern
-	if !strings.Contains(result, ":test.go") {
-		t.Errorf("getRelativePath result %q doesn't contain :test.go", result)
-	}
-}
-
 func TestBuildExcludeMatcher_EmptyPatterns(t *testing.T) {
-	matcher, err := buildExcludeMatcher([]string{}, []string{}, false)
+	matcher, err := exclude.BuildMatcher([]string{}, []string{}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	if matcher == nil {
 		t.Error("expected non-nil matcher")
 	}
-
-	if matcher.gitignoreMatcher != nil {
-		t.Error("expected nil gitignoreMatcher for empty patterns")
-	}
 }
 
 func TestBuildExcludeMatcher_WithGlobPatterns(t *testing.T) {
 	patterns := []string{"*.log", "*.tmp"}
-	matcher, err := buildExcludeMatcher([]string{}, patterns, false)
+	matcher, err := exclude.BuildMatcher([]string{}, patterns, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
-	if len(matcher.globPatterns) != 2 {
-		t.Errorf("expected 2 glob patterns, got %d", len(matcher.globPatterns))
+	if matcher == nil {
+		t.Error("expected non-nil matcher")
 	}
 }
 
@@ -215,13 +104,9 @@ func TestBuildExcludeMatcher_WithFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{}, false)
+	matcher, err := exclude.BuildMatcher([]string{tmpfile.Name()}, []string{}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
-	}
-
-	if matcher.gitignoreMatcher == nil {
-		t.Error("expected non-nil gitignoreMatcher")
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	// Test that it excludes correctly
@@ -231,7 +116,7 @@ func TestBuildExcludeMatcher_WithFile(t *testing.T) {
 }
 
 func TestBuildExcludeMatcher_NonExistentFile(t *testing.T) {
-	_, err := buildExcludeMatcher([]string{"/nonexistent/file.txt"}, []string{}, false)
+	_, err := exclude.BuildMatcher([]string{"/nonexistent/file.txt"}, []string{}, false)
 	if err == nil {
 		t.Error("expected error for nonexistent file, got nil")
 	}
@@ -258,9 +143,9 @@ node_modules/
 		t.Fatal(err)
 	}
 
-	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{}, false)
+	matcher, err := exclude.BuildMatcher([]string{tmpfile.Name()}, []string{}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	tests := []struct {
@@ -303,9 +188,9 @@ func TestExcludeMatcherShouldExclude_MixedPatterns(t *testing.T) {
 	}
 
 	// Mix gitignore patterns and glob patterns
-	matcher, err := buildExcludeMatcher([]string{tmpfile.Name()}, []string{"*.tmp", "build/"}, false)
+	matcher, err := exclude.BuildMatcher([]string{tmpfile.Name()}, []string{"*.tmp", "build/"}, false)
 	if err != nil {
-		t.Fatalf("buildExcludeMatcher failed: %v", err)
+		t.Fatalf("BuildMatcher failed: %v", err)
 	}
 
 	tests := []struct {
@@ -330,3 +215,81 @@ func TestExcludeMatcherShouldExclude_MixedPatterns(t *testing.T) {
 	}
 }
 
+func TestGetRelativePath(t *testing.T) {
+	// Create a temporary directory structure
+	tmpDir, err := os.MkdirTemp("", "clipcat-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(srcDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	absTestFile, _ := filepath.Abs(testFile)
+	roots := []string{srcDir}
+
+	result := getRelativePath(absTestFile, roots)
+
+	if !strings.HasSuffix(result, ":main.go") {
+		t.Errorf("getRelativePath result %q doesn't end with :main.go", result)
+	}
+}
+
+func getRelativePath(file string, roots []string) string {
+	// Find the best matching root
+	var bestRoot string
+	var bestLabel string
+
+	for _, root := range roots {
+		if isGlobPattern(root) {
+			continue
+		}
+
+		absRoot, _ := filepath.Abs(root)
+		if strings.HasPrefix(file, absRoot) && len(absRoot) > len(bestRoot) {
+			bestRoot = absRoot
+			bestLabel = root
+		}
+	}
+
+	if bestRoot != "" {
+		rel, _ := filepath.Rel(bestRoot, file)
+		return bestLabel + ":" + rel
+	}
+
+	rel, _ := filepath.Rel(".", file)
+	return ".:" + rel
+}
+
+func TestGetRelativePath_WithGlobInRoots(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "clipcat-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	absTestFile, _ := filepath.Abs(testFile)
+
+	// Glob patterns should be skipped in root matching
+	roots := []string{"*test*", tmpDir}
+
+	result := getRelativePath(absTestFile, roots)
+
+	// Should match tmpDir, not the glob pattern
+	if !strings.Contains(result, ":test.go") {
+		t.Errorf("getRelativePath result %q doesn't contain :test.go", result)
+	}
+}

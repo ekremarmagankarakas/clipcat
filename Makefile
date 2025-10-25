@@ -6,46 +6,46 @@ all: test build
 # Build the binary
 build:
 	@echo "Building clipcat..."
-	go build -ldflags="-s -w" -o clipcat clipcat.go
+	go build -ldflags="-s -w" -o clipcat-binary ./cmd/clipcat
 	@echo "✓ Built clipcat"
 
 # Run all tests
 test:
 	@echo "Running all tests..."
-	go test -v -cover
+	go test -v -cover ./test/...
 
 # Run only unit tests
 test-unit:
 	@echo "Running unit tests..."
-	go test -v -run "^Test[^C][^o]" ./...
+	go test -v ./test/unit/...
 
-# Run only integration tests (those starting with TestCollect, TestWrite, TestEndToEnd)
+# Run only integration tests
 test-integration:
 	@echo "Running integration tests..."
-	go test -v -run "^Test(Collect|Write|EndToEnd)" ./...
+	go test -v ./test/integration/...
 
 # Run tests with coverage report
 test-coverage:
 	@echo "Running tests with coverage..."
-	go test -coverprofile=coverage.out
+	go test -coverprofile=coverage.out ./test/...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "✓ Coverage report generated: coverage.html"
 
 # Run tests with race detector
 test-race:
 	@echo "Running tests with race detector..."
-	go test -race
+	go test -race ./test/...
 
 # Run tests with verbose output and show coverage percentage
 test-verbose:
 	@echo "Running tests verbosely..."
-	go test -v -cover -coverprofile=coverage.out
+	go test -v -cover -coverprofile=coverage.out ./test/...
 	@echo "\nCoverage summary:"
 	go tool cover -func=coverage.out | grep total
 
 # Quick test (no verbose, just pass/fail)
 test-quick:
-	@go test -cover
+	@go test -cover ./test/...
 
 # Benchmark tests
 bench:
@@ -55,20 +55,20 @@ bench:
 # Clean build artifacts and test files
 clean:
 	@echo "Cleaning..."
-	rm -f clipcat coverage.out coverage.html
+	rm -f clipcat-binary coverage.out coverage.html
 	@echo "✓ Cleaned"
 
 # Install to ~/.local/bin
 install: build
 	@echo "Installing to ~/.local/bin..."
 	mkdir -p ~/.local/bin
-	cp clipcat ~/.local/bin/
+	cp clipcat-binary ~/.local/bin/
 	@echo "✓ Installed to ~/.local/bin/clipcat"
 
 # Install to /usr/local/bin (requires sudo)
 install-system: build
 	@echo "Installing to /usr/local/bin (requires sudo)..."
-	sudo cp clipcat /usr/local/bin/
+	sudo cp clipcat-binary /usr/local/bin/
 	sudo chmod +x /usr/local/bin/clipcat
 	@echo "✓ Installed to /usr/local/bin/clipcat"
 
@@ -98,7 +98,7 @@ deps:
 
 # Show test coverage in terminal
 coverage-report:
-	@go test -coverprofile=coverage.out > /dev/null 2>&1
+	@go test -coverprofile=coverage.out ./test/... > /dev/null 2>&1
 	@echo "Coverage by file:"
 	@go tool cover -func=coverage.out
 
