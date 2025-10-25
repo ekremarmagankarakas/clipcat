@@ -68,6 +68,10 @@ func isDoublestarPattern(pattern string) bool {
 	return strings.Contains(pattern, "**")
 }
 
+func hasBraceExpansion(pattern string) bool {
+	return strings.Contains(pattern, "{") && strings.Contains(pattern, "}")
+}
+
 func (m *ExcludeMatcher) ShouldExclude(path string, isDir bool) bool {
 	// Convert to relative path for gitignore matching
 	relPath, err := filepath.Rel(".", path)
@@ -159,8 +163,8 @@ func (m *ExcludeMatcher) ShouldExclude(path string, isDir bool) bool {
 }
 
 func matchPath(pattern, target string) bool {
-	if isDoublestarPattern(pattern) {
-		// Use doublestar for complex patterns with **
+	if isDoublestarPattern(pattern) || hasBraceExpansion(pattern) {
+		// Use doublestar for complex patterns with ** or brace expansion
 		matched, err := doublestar.Match(pattern, target)
 		if err != nil {
 			return false

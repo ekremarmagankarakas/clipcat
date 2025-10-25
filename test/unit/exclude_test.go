@@ -294,6 +294,49 @@ func TestGetRelativePath_WithGlobInRoots(t *testing.T) {
 	}
 }
 
+func TestExcludeMatcherShouldExclude_PathAwareOnly(t *testing.T) {
+	// Test ONLY path-aware patterns (no basename patterns)
+	// This clearly demonstrates path vs basename distinction
+	matcher, _ := exclude.BuildMatcher([]string{}, []string{
+		"src/test.go",    // should only match this exact path
+		"lib/*/config.json", // should match lib/any/config.json
+		"docs/api.md",    // should only match this exact path
+	}, false)
+
+	tests := []struct {
+		name     string
+		path     string
+		isDir    bool
+		expected bool
+	}{
+		// src/test.go pattern tests
+		{"exact src/test.go match", "src/test.go", false, true},
+		{"test.go in root - no match", "test.go", false, false},
+		{"test.go in lib - no match", "lib/test.go", false, false},
+		{"test.go in deep path - no match", "project/test.go", false, false},
+		
+		// lib/*/config.json pattern tests  
+		{"lib wildcard match", "lib/prod/config.json", false, true},
+		{"lib wildcard match 2", "lib/dev/config.json", false, true},
+		{"config.json in root - no match", "config.json", false, false},
+		{"config.json elsewhere - no match", "src/config.json", false, false},
+		
+		// docs/api.md pattern tests
+		{"exact docs/api.md match", "docs/api.md", false, true},
+		{"api.md in root - no match", "api.md", false, false},
+		{"api.md elsewhere - no match", "guides/api.md", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matcher.ShouldExclude(tt.path, tt.isDir)
+			if result != tt.expected {
+				t.Errorf("ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		})
+	}
+}
+
 // Advanced exclusion pattern tests
 
 func TestExcludeMatcherShouldExclude_ComplexGlobs(t *testing.T) {
@@ -440,8 +483,8 @@ func TestExcludeMatcherShouldExclude_PathVsBasename(t *testing.T) {
 		
 		// Path-aware pattern should only match exact path
 		{"exact src/test.go", "src/test.go", false, true},
-		{"test.go in root (path)", "test.go", false, false}, // doesn't match src/test.go
-		{"test.go in lib", "lib/test.go", false, false},   // doesn't match src/test.go
+		{"test.go in root (path)", "test.go", false, true}, // matches "test.go" basename pattern
+		{"test.go in lib", "lib/test.go", false, true},   // matches "test.go" basename pattern
 		
 		// Wildcard path pattern
 		{"temp.txt in any subdir", "cache/temp.txt", false, true},
@@ -464,57 +507,105 @@ func TestExcludeMatcherShouldExclude_PathVsBasename(t *testing.T) {
 }
 
 func TestExcludeMatcherShouldExclude_EdgeCases(t *testing.T) {
-	// Test edge cases and corner cases
-	matcher, _ := exclude.BuildMatcher([]string{}, []string{
-		"",           // empty pattern
-		"  ",        // whitespace only
-		"*",         // match everything
-		"?",         // single char
-		"[abc]",     // character class
-		"file[0-9]*", // complex pattern
-	}, false)
+	// Test each pattern type separately to avoid interference
 
-	tests := []struct {
-		name     string
-		path     string
-		isDir    bool
-		expected bool
-	}{
-		// Empty pattern should not match anything
-		{"empty pattern vs file", "any.file", false, false},
+	t.Run("EmptyPatterns", func(t *testing.T) {
+		// Test empty and whitespace-only patterns
+		matcher, _ := exclude.BuildMatcher([]string{}, []string{"", "  "}, false)
 		
-		// Whitespace pattern should not match anything
-		{"whitespace pattern vs file", "any.file", false, false},
-		
-		// * should match any file basename
-		{"star matches file", "test.go", false, true},
-		{"star matches file in subdir", "src/test.go", false, true},
-		
-		// ? should match single character
-		{"single char match", "a", false, true},
-		{"single char no match", "ab", false, false},
-		
-		// Character class
-		{"char class match a", "a", false, true},
-		{"char class match b", "b", false, true}, 
-		{"char class match c", "c", false, true},
-		{"char class no match d", "d", false, false},
-		
-		// Complex pattern
-		{"complex pattern match", "file1.txt", false, true},
-		{"complex pattern match 2", "file99", false, true},
-		{"complex pattern no match", "file.txt", false, false}, // no digit
-		{"complex pattern no match 2", "test1.txt", false, false}, // doesn't start with "file"
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := matcher.ShouldExclude(tt.path, tt.isDir)
-			if result != tt.expected {
-				t.Errorf("ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
+		testCases := []string{"any.file", "test.go", "a"}
+		for _, file := range testCases {
+			result := matcher.ShouldExclude(file, false)
+			if result != false {
+				t.Errorf("Empty patterns should not exclude %q, got %v", file, result)
 			}
-		})
-	}
+		}
+	})
+
+	t.Run("WildcardPatterns", func(t *testing.T) {
+		matcher, _ := exclude.BuildMatcher([]string{}, []string{"*"}, false)
+		
+		tests := []struct {
+			path     string
+			expected bool
+		}{
+			{"test.go", true},           // * matches basename
+			{"src/test.go", true},       // * matches basename
+			{"any.file", true},          // * matches basename
+		}
+		
+		for _, tt := range tests {
+			result := matcher.ShouldExclude(tt.path, false)
+			if result != tt.expected {
+				t.Errorf("Pattern '*': ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		}
+	})
+
+	t.Run("SingleCharWildcard", func(t *testing.T) {
+		matcher, _ := exclude.BuildMatcher([]string{}, []string{"?"}, false)
+		
+		tests := []struct {
+			path     string
+			expected bool
+		}{
+			{"a", true},      // ? matches single char
+			{"ab", false},    // ? should not match multiple chars
+			{"test.go", false}, // ? should not match multiple chars
+		}
+		
+		for _, tt := range tests {
+			result := matcher.ShouldExclude(tt.path, false)
+			if result != tt.expected {
+				t.Errorf("Pattern '?': ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		}
+	})
+
+	t.Run("CharacterClass", func(t *testing.T) {
+		matcher, _ := exclude.BuildMatcher([]string{}, []string{"[abc]"}, false)
+		
+		tests := []struct {
+			path     string
+			expected bool
+		}{
+			{"a", true},      // [abc] matches 'a'
+			{"b", true},      // [abc] matches 'b' 
+			{"c", true},      // [abc] matches 'c'
+			{"d", false},     // [abc] should not match 'd'
+			{"ab", false},    // [abc] should not match multiple chars
+		}
+		
+		for _, tt := range tests {
+			result := matcher.ShouldExclude(tt.path, false)
+			if result != tt.expected {
+				t.Errorf("Pattern '[abc]': ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		}
+	})
+
+	t.Run("ComplexPattern", func(t *testing.T) {
+		matcher, _ := exclude.BuildMatcher([]string{}, []string{"file[0-9]*"}, false)
+		
+		tests := []struct {
+			path     string
+			expected bool
+		}{
+			{"file1.txt", true},    // file + digit + anything
+			{"file99", true},       // file + digits
+			{"file0", true},        // file + single digit
+			{"file.txt", false},    // file without digit
+			{"test1.txt", false},   // doesn't start with "file"
+			{"myfile1.txt", false}, // doesn't start with "file"
+		}
+		
+		for _, tt := range tests {
+			result := matcher.ShouldExclude(tt.path, false)
+			if result != tt.expected {
+				t.Errorf("Pattern 'file[0-9]*': ShouldExclude(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		}
+	})
 }
 
 func TestExcludeMatcherShouldExclude_GitignoreAdvanced(t *testing.T) {
@@ -572,7 +663,7 @@ temp[0-9]/
 		{"regular log excluded", "debug.log", false, true},
 		{"important log included", "important.log", false, false}, // negated
 		{"critical log included", "critical/error.log", false, false}, // negated
-		{"other critical log excluded", "critical/debug.log", false, true}, // not negated
+		{"other critical log excluded", "critical/debug.log", false, false}, // included by !critical/*.log negation
 		
 		// Directory vs file
 		{"logs directory", "logs/app.log", false, true},
