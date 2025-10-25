@@ -6,10 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 func isGlobPattern(path string) bool {
 	return strings.ContainsAny(path, "*?[")
+}
+
+func isDoublestarPattern(pattern string) bool {
+	return strings.Contains(pattern, "**")
 }
 
 func containsAnySep(s string) bool {
@@ -17,8 +23,18 @@ func containsAnySep(s string) bool {
 }
 
 func matchPath(pattern, target string) bool {
-	ok, _ := filepath.Match(pattern, target)
-	return ok
+	if isDoublestarPattern(pattern) {
+		// Use doublestar for complex patterns with **
+		matched, err := doublestar.Match(pattern, target)
+		if err != nil {
+			return false
+		}
+		return matched
+	} else {
+		// Use filepath.Match for simple patterns
+		ok, _ := filepath.Match(pattern, target)
+		return ok
+	}
 }
 
 func CollectFiles(paths []string, matcher *exclude.ExcludeMatcher, ignoreCase bool) ([]string, error) {
@@ -95,15 +111,15 @@ func CollectFiles(paths []string, matcher *exclude.ExcludeMatcher, ignoreCase bo
 				target := rel
 
 				var matched bool
-				if containsAnySep(patNorm) {
-					// Match against the relative path when the pattern has a separator
+				if containsAnySep(patNorm) || isDoublestarPattern(patNorm) {
+					// Match against the relative path when the pattern has a separator or is a doublestar pattern
 					if ignoreCase {
 						matched = matchPath(strings.ToLower(patNorm), strings.ToLower(target))
 					} else {
 						matched = matchPath(patNorm, target)
 					}
 				} else {
-					// Match against basename when there's no separator
+					// Match against basename when there's no separator and not a doublestar pattern
 					name := filepath.Base(rel)
 					if ignoreCase {
 						matched = matchPath(strings.ToLower(patNorm), strings.ToLower(name))

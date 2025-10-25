@@ -3,3 +3,5 @@ module clipcat
 go 1.24.0
 
 require github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+
+require github.com/bmatcuk/doublestar/v4 v4.9.1 // indirect

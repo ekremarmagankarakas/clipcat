@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	gitignore "github.com/sabhiram/go-gitignore"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 type ExcludeMatcher struct {
@@ -61,6 +62,10 @@ func readPatternsFromFile(path string) ([]string, error) {
 
 func hasGlobChars(s string) bool {
 	return strings.ContainsAny(s, "*?[")
+}
+
+func isDoublestarPattern(pattern string) bool {
+	return strings.Contains(pattern, "**")
 }
 
 func (m *ExcludeMatcher) ShouldExclude(path string, isDir bool) bool {
@@ -154,6 +159,16 @@ func (m *ExcludeMatcher) ShouldExclude(path string, isDir bool) bool {
 }
 
 func matchPath(pattern, target string) bool {
-	ok, _ := filepath.Match(pattern, target)
-	return ok
+	if isDoublestarPattern(pattern) {
+		// Use doublestar for complex patterns with **
+		matched, err := doublestar.Match(pattern, target)
+		if err != nil {
+			return false
+		}
+		return matched
+	} else {
+		// Use filepath.Match for simple patterns
+		ok, _ := filepath.Match(pattern, target)
+		return ok
+	}
 }
